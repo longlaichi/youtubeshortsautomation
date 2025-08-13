@@ -21,20 +21,33 @@ def authenticate_drive():
     return GoogleDrive(gauth)
 
 def ffmpeg_ultrahd(input_path, output_path):
-    """Convert video to IG-friendly Ultra HD (1080x1920, 30fps, high bitrate)."""
+    """
+    Convert 60 fps video to Instagram-friendly Ultra HD (1080x1920, 30fps)
+    keeping the highest quality possible for Instagram.
+    """
     cmd = [
         "ffmpeg", "-y", "-i", input_path,
-        "-vf", "scale=1080:1920:force_original_aspect_ratio=decrease,"
-               "pad=1080:1920:(ow-iw)/2:(oh-ih)/2",
-        "-r", "30",
-        "-c:v", "libx264", "-preset", "veryslow",
-        "-profile:v", "high", "-level", "4.1", "-b:v", "10M",
+        "-vf",
+        "scale=1080:1920:force_original_aspect_ratio=decrease,"
+        "pad=1080:1920:(ow-iw)/2:(oh-ih)/2",
+        "-r", "30",                  # convert 60fps -> 30fps
+        "-c:v", "libx264",
+        "-preset", "slow",           # best balance speed/quality in GitHub Actions
+        "-profile:v", "high",
+        "-level", "4.1",
+        "-b:v", "20M",               # maximum video bitrate
+        "-maxrate", "22M",
+        "-bufsize", "22M",
         "-pix_fmt", "yuv420p",
-        "-c:a", "aac", "-b:a", "128k", "-ar", "44100",
+        "-c:a", "aac",
+        "-b:a", "192k",
+        "-ar", "48000",
         output_path
     ]
     print("Running FFmpeg Ultra HD processing...")
     subprocess.run(cmd, check=True)
+    print(f"✅ Finished processing: {output_path}")
+
 
 def main():
     print("Authenticating with Google Drive...")
