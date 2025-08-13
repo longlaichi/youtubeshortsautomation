@@ -20,6 +20,7 @@ def generate_caption(file_title: str) -> str:
         "#animemoments #manga #japan #animeaesthetic "
         "#amv #animelife #animefan #animelove #weeblife "
         "#animeworld #otakulife #animecommunity #foryou "
+	"#getviral #boostreach #boostfollower #lust"
         "#fyp #viralreels #trend #ultrahd #reelsinstagram"
     )
 
