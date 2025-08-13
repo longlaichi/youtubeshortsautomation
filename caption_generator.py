@@ -6,12 +6,14 @@ def generate_caption(file_title: str) -> str:
 
     # Anime-specific caption ideas
     captions = [
-        f"{base_name} 🌸✨",
-        f"Relive this epic anime moment 🎥🔥",
-        f"When anime hits different 🎬💖",
-        f"{base_name} — One scene, infinite feels 😭❤️",
-        f"Anime vibes all day 🌙⭐",
-        f"{base_name} — Ultra HD anime perfection 🎯"
+        "Relive this epic anime moment 🎥🔥",
+        "When anime hits different 🎬💖",
+        "One scene, infinite feels 😭❤️",
+        "Anime vibes all day 🌙⭐",
+        "Ultra HD anime perfection 🎯",
+        "Get inspired by this incredible anime shot ✨🎞️",
+        "Feel the emotions, live the story 🌸💫",
+        "Anime magic in motion 🌀🎥",
     ]
 
     # High-reach anime hashtags
