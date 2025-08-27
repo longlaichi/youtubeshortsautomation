@@ -19,7 +19,7 @@ def authenticate_google_drive():
             gauth.credentials = pickle.load(token_file)
 
     # If credentials are not available or invalid, authenticate again
-    if not gauth.credentials or gauth.credentials.invalid:
+    if not gauth.credentials or gauth.credentials.valid:
         gauth.LocalWebserverAuth()
 
         # Save the credentials to token.pickle
