@@ -32,10 +32,12 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y ffmpeg
 
-      - name: Install dependencies
+        - name: Install dependencies
         run: |
-          python -m pip install --upgrade pip
-          pip install google-auth google-auth-oauthlib google-api-python-client pydrive2 oauth2client opencv-python
+                python -m pip install --upgrade pip
+                pip install google-auth google-auth-oauthlib google-api-python-client \
+                pydrive2 oauth2client opencv-python openai
+
 
       - name: Run YouTube bot
         env:
