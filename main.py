@@ -34,32 +34,37 @@ def authenticate_google_drive():
 # ======================
 # YouTube API Auth
 # ======================
+from googleapiclient.discovery import build
+from google_auth_oauthlib.flow import InstalledAppFlow
+from google.auth.transport.requests import Request
+import pickle
+import os
+
 def authenticate_youtube():
     creds = None
+
+    # Load token.pickle if it exists
     if os.path.exists("token.pickle"):
         with open("token.pickle", "rb") as token_file:
             creds = pickle.load(token_file)
 
+    # If no valid credentials, run OAuth flow
     if not creds or not creds.valid:
-        # If expired, refresh
-        from google.auth.transport.requests import Request
         if creds and creds.expired and creds.refresh_token:
             creds.refresh(Request())
         else:
-            # If no creds, run OAuth
-            from google_auth_oauthlib.flow import InstalledAppFlow
             flow = InstalledAppFlow.from_client_secrets_file(
-                "client_secret.json",
-                scopes=["https://www.googleapis.com/auth/youtube.upload",
-                        "https://www.googleapis.com/auth/drive"]
+                "client_secret.json",  # Place your OAuth client secret JSON here
+                scopes=["https://www.googleapis.com/auth/youtube.upload"]
             )
             creds = flow.run_local_server(port=0)
 
-        # Save creds for next run
+        # Save creds for next time
         with open("token.pickle", "wb") as token_file:
             pickle.dump(creds, token_file)
 
     return build("youtube", "v3", credentials=creds)
+
 
 # ======================
 # Main Posting Logic
