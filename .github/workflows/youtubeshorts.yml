@@ -1,60 +1,37 @@
-name: Post Motivational Reels to YouTube
+name: Instagram Reel Uploader
 
 on:
-  workflow_dispatch:
   schedule:
-    # 6 posts daily
-    - cron: "30 2 * * *"   # 8:00 AM IST
-    - cron: "30 6 * * *"   # 12:00 PM IST
-    - cron: "30 10 * * *"  # 4:00 PM IST
-    - cron: "30 14 * * *"  # 8:00 PM IST
-    - cron: "30 18 * * *"  # 12:00 AM IST
-    - cron: "30 22 * * *"  # 4:00 AM IST
-
-permissions:
-  contents: write
+    # Runs every 4 hours = 6 times per day
+    - cron: "0 */4 * * *"
+  workflow_dispatch: # allow manual trigger
 
 jobs:
-  post:
+  run-bot:
     runs-on: ubuntu-latest
 
     steps:
       - name: Checkout repo
-        uses: actions/checkout@v4
+        uses: actions/checkout@v3
 
       - name: Set up Python
-        uses: actions/setup-python@v5
+        uses: actions/setup-python@v4
         with:
-          python-version: "3.11"
-
-      - name: Install FFmpeg
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y ffmpeg
+          python-version: "3.10"
 
       - name: Install dependencies
         run: |
           python -m pip install --upgrade pip
-          pip install google-auth google-auth-oauthlib google-api-python-client \
-                      pydrive2 oauth2client opencv-python openai
+          pip install -r requirements.txt
 
-      - name: Run YouTube bot
+      - name: Restore token.pickle
+        run: |
+          echo "${{ secrets.GDRIVE_TOKEN_PICKLE }}" | base64 --decode > token.pickle
+
+      - name: Run main.py
         env:
-          GOOGLE_SERVICE_ACCOUNT: ${{ secrets.GOOGLE_SERVICE_ACCOUNT }}
-          DRIVE_FOLDER_IDS: ${{ secrets.DRIVE_FOLDER_IDS }}
-          YOUTUBE_CHANNEL_ID: ${{ secrets.YOUTUBE_CHANNEL_ID }}
-          YOUTUBE_CREDS_JSON: ${{ secrets.YOUTUBE_CREDS_JSON }}
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+          IG_USERNAME: ${{ secrets.IG_USERNAME }}
+          IG_PASSWORD: ${{ secrets.IG_PASSWORD }}
         run: |
           python main.py
-
-      - name: Commit posted.json (if changed)
-        if: always()
-        run: |
-          if [[ -n "$(git status --porcelain)" ]]; then
-            git config user.name "github-actions[bot]"
-            git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-            git add posted.json
-            git commit -m "Update posted log [skip ci]"
-            git push
-          else
-            echo "No changes to commit."
