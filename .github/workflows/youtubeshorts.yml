@@ -28,7 +28,12 @@ jobs:
           python -m pip install --upgrade pip
           pip install --upgrade --force-reinstall -r requirements.txt
 
-      # Restore client_secret.json
+      # Restore Google Drive service account JSON
+      - name: Restore GDrive Service Account JSON
+        run: |
+          echo "${{ secrets.GDRIVE_CREDS_JSON_B64 }}" | base64 --decode > gdrive_service_account.json
+
+      # Restore YouTube OAuth client_secret.json
       - name: Restore client_secret.json
         run: |
           echo "${{ secrets.CLIENT_SECRET_JSON_B64 }}" | base64 --decode > client_secret.json
@@ -38,6 +43,7 @@ jobs:
         env:
           OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
           DRIVE_FOLDER_IDS: ${{ secrets.DRIVE_FOLDER_IDS }}
+          GDRIVE_CREDS_JSON_B64: ${{ secrets.GDRIVE_CREDS_JSON_B64 }}
         run: python main.py
 
       # Commit posted.json if changed
