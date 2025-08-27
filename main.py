@@ -27,20 +27,25 @@ def authenticate_drive():
 # YouTube Authentication
 # -------------------------------
 def authenticate_youtube():
-    with open("session.json", "r") as f:
-        creds_data = json.load(f)
-
+    import json
     from google.oauth2.credentials import Credentials
+    from googleapiclient.discovery import build
+    import os
+
+    creds_data = json.loads(os.environ["YOUTUBE_CREDS_JSON"])
+
     creds = Credentials(
-        token=creds_data["token"],
-        refresh_token=creds_data["refresh_token"],
-        token_uri=creds_data["token_uri"],
-        client_id=creds_data["client_id"],
-        client_secret=creds_data["client_secret"],
-        scopes=creds_data["scopes"]
+        token=creds_data.get("token"),
+        refresh_token=creds_data.get("refresh_token"),
+        token_uri=creds_data.get("token_uri"),
+        client_id=creds_data.get("client_id"),
+        client_secret=creds_data.get("client_secret"),
+        scopes=creds_data.get("scopes")
     )
+
     youtube = build("youtube", "v3", credentials=creds)
     return youtube
+
 
 # -------------------------------
 # FFmpeg Ultra HD Preprocess
