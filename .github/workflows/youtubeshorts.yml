@@ -2,9 +2,8 @@ name: YTReelUploader
 
 on:
   schedule:
-    # Runs every 4 hours = 6 times per day
     - cron: "0 */4 * * *"
-  workflow_dispatch: # allow manual trigger
+  workflow_dispatch:
 
 jobs:
   upload:
@@ -29,12 +28,7 @@ jobs:
           python -m pip install --upgrade pip
           pip install --upgrade --force-reinstall -r requirements.txt
 
-      # Restore Google Drive token.pickle
-      - name: Restore token.pickle
-        run: |
-          echo "${{ secrets.GDRIVE_TOKEN_B64 }}" | base64 --decode > token.pickle
-
-      # Restore YouTube OAuth client_secret.json
+      # Restore client_secret.json
       - name: Restore client_secret.json
         run: |
           echo "${{ secrets.CLIENT_SECRET_JSON_B64 }}" | base64 --decode > client_secret.json
