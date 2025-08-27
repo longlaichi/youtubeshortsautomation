@@ -1,4 +1,4 @@
-name: YTREELUploader
+name: YTReelUploader
 
 on:
   schedule:
@@ -29,7 +29,12 @@ jobs:
           python -m pip install --upgrade pip
           pip install --upgrade --force-reinstall -r requirements.txt
 
+      # Restore your Google OAuth credentials (client_secret.json)
+      - name: Restore YouTube credentials
+        run: |
+          echo "${{ secrets.YOUTUBE_CREDS_JSON }}" > client_secret.json
 
+      # Restore token.pickle (OAuth refresh token)
       - name: Restore token.pickle
         run: |
           echo "${{ secrets.GDRIVE_TOKEN_PICKLE }}" | base64 --decode > token.pickle
@@ -37,11 +42,7 @@ jobs:
       - name: Run main.py
         env:
           OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
-          IG_USERNAME: ${{ secrets.IG_USERNAME }}
-          IG_PASSWORD: ${{ secrets.IG_PASSWORD }}
-          GOOGLE_SERVICE_ACCOUNT: ${{ secrets.GOOGLE_SERVICE_ACCOUNT }}
           DRIVE_FOLDER_IDS: ${{ secrets.DRIVE_FOLDER_IDS }}
-          YOUTUBE_CREDS_JSON: ${{ secrets.YOUTUBE_CREDS_JSON }}
         run: python main.py
 
       - name: Commit posted.json (if changed)
