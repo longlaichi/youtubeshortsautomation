@@ -29,23 +29,25 @@ jobs:
           python -m pip install --upgrade pip
           pip install --upgrade --force-reinstall -r requirements.txt
 
-      # Restore your Google OAuth credentials (client_secret.json)
-      - name: Restore YouTube credentials
-        run: |
-          echo "${{ secrets.YOUTUBE_CREDS_JSON }}" > client_secret.json
-
-      # Restore token.pickle (OAuth refresh token)
+      # Restore your Google Drive OAuth credentials (token.pickle)
       - name: Restore token.pickle
         run: |
-          echo "${{ secrets.GDRIVE_TOKEN_PICKLE }}" | base64 --decode > token.pickle
+          echo "${{ secrets.GDRIVE_TOKEN_B64 }}" | base64 --decode > token.pickle
+
+      # Restore YouTube service account credentials
+      - name: Restore YouTube credentials
+        run: |
+          echo "${{ secrets.YOUTUBE_CREDS_JSON }}" > youtube_creds.json
 
       - name: Run main.py
         env:
           OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
           DRIVE_FOLDER_IDS: ${{ secrets.DRIVE_FOLDER_IDS }}
+          YOUTUBE_CREDS_JSON: ${{ secrets.YOUTUBE_CREDS_JSON }}
         run: python main.py
 
-      - name: Commit posted.json (if changed)
+      # Commit posted.json if changed
+      - name: Commit posted.json
         run: |
           if [[ -n "$(git status --porcelain)" ]]; then
             git config user.name "github-actions[bot]"

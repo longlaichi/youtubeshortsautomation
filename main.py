@@ -31,13 +31,35 @@ def authenticate_google_drive():
 # ======================
 # YouTube API Auth
 # ======================
+# ======================
+# YouTube API Auth
+# ======================
 def authenticate_youtube():
-    creds_json = os.environ["YOUTUBE_CREDS_JSON"]
-    creds_dict = eval(creds_json)  # service account JSON stored as GitHub secret
-    credentials = Credentials.from_service_account_info(
-        creds_dict, scopes=["https://www.googleapis.com/auth/youtube.upload"]
-    )
-    return build("youtube", "v3", credentials=credentials)
+    creds = None
+    if os.path.exists("token.pickle"):
+        with open("token.pickle", "rb") as token_file:
+            creds = pickle.load(token_file)
+
+    if not creds or not creds.valid:
+        # If expired, refresh
+        from google.auth.transport.requests import Request
+        if creds and creds.expired and creds.refresh_token:
+            creds.refresh(Request())
+        else:
+            # If no creds, run OAuth
+            from google_auth_oauthlib.flow import InstalledAppFlow
+            flow = InstalledAppFlow.from_client_secrets_file(
+                "client_secret.json",
+                scopes=["https://www.googleapis.com/auth/youtube.upload",
+                        "https://www.googleapis.com/auth/drive"]
+            )
+            creds = flow.run_local_server(port=0)
+
+        # Save creds for next run
+        with open("token.pickle", "wb") as token_file:
+            pickle.dump(creds, token_file)
+
+    return build("youtube", "v3", credentials=creds)
 
 # ======================
 # Main Posting Logic
