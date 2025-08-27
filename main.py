@@ -10,12 +10,20 @@ from caption_generator import generate_caption
 # ======================
 # Google Drive Auth
 # ======================
-def authenticate_google_drive():
-    gauth = GoogleAuth()
-    gauth.DEFAULT_SETTINGS['client_config_file'] = "client_secret.json"
-    gauth.LocalWebserverAuth()  # Authenticate and save credentials automatically
-    return GoogleDrive(gauth)
+from pydrive2.auth import GoogleAuth
+from pydrive2.drive import GoogleDrive
+from google.oauth2.service_account import Credentials
+import json
+import os
 
+def authenticate_google_drive():
+    creds_json = os.environ["GDRIVE_CREDS_JSON_B64"]
+    creds_dict = json.loads(base64.b64decode(creds_json).decode("utf-8"))
+    creds = Credentials.from_service_account_info(creds_dict, scopes=["https://www.googleapis.com/auth/drive"])
+    
+    gauth = GoogleAuth()
+    gauth.credentials = creds
+    return GoogleDrive(gauth)
 # ======================
 # YouTube API Auth
 # ======================
