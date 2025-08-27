@@ -2,7 +2,8 @@ import os
 import json
 import subprocess
 import cv2
-from pydrive2.auth import GoogleAuth, GoogleDrive
+from pydrive2.auth import GoogleAuth
+from pydrive2.drive import GoogleDrive
 from googleapiclient.discovery import build
 from googleapiclient.http import MediaFileUpload
 
