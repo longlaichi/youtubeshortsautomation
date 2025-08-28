@@ -10,7 +10,7 @@ from caption_generator import generate_caption
 # -----------------------------
 # CONFIG
 # -----------------------------
-SERVICE_ACCOUNT_FILE = "service_account.json"  # Upload this to repo (or handle via secrets)
+SERVICE_ACCOUNT_FILE = "service_account.json"  # Handle via secrets
 SCOPES = ["https://www.googleapis.com/auth/drive.readonly",
           "https://www.googleapis.com/auth/youtube.upload"]
 
@@ -19,8 +19,8 @@ SCOPES = ["https://www.googleapis.com/auth/drive.readonly",
 # -----------------------------
 def authenticate_youtube():
     print("Authenticating YouTube...")
+    import pickle
     with open("youtube_token.pkl", "rb") as f:
-        import pickle
         creds = pickle.load(f)
     youtube = build("youtube", "v3", credentials=creds)
     print("YouTube authentication completed.")
@@ -55,20 +55,6 @@ def save_posted(posted):
     with open("posted.json", "w") as f:
         json.dump(list(posted), f)
     print("Updated posted.json.")
-
-# -----------------------------
-# Fallback Captions
-# -----------------------------
-FALLBACK_CAPTIONS = [
-    "Keep grinding 💪 Success is coming! #Motivation #Success #Grind",
-    "Your only limit is you 🚀 #Inspiration #DailyMotivation #DreamBig",
-    "Don’t stop until you’re proud 🔥 #NeverGiveUp #StayStrong",
-    "Every day is a new chance to grow 🌱 #Mindset #Positivity",
-    "Small steps lead to big results 🏆 #Focus #Discipline",
-] * 20  # total 100
-
-def get_random_caption():
-    return random.choice(FALLBACK_CAPTIONS)
 
 # -----------------------------
 # Drive: Get files from folder
@@ -122,7 +108,7 @@ def upload_to_youtube(youtube, video_file, title, description):
             "title": title,
             "description": description,
             "tags": ["motivation", "inspiration", "shorts", "success", "discipline"],
-            "categoryId": "22"  # People & Blogs
+            "categoryId": "22"
         },
         "status": {"privacyStatus": "public"}
     }
@@ -158,14 +144,7 @@ def main():
         process_video(file_name, processed_file)
 
         # Caption generation
-        try:
-            caption = generate_caption(file_name)
-            if not caption or caption.strip() == "":
-                raise Exception("Empty caption")
-        except Exception as e:
-            print("Caption generation failed, using fallback.", e)
-            caption = get_random_caption()
-
+        caption = generate_caption()
         title = caption[:100]
         description = caption
         upload_to_youtube(youtube, processed_file, title, description)

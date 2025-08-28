@@ -1,38 +1,21 @@
-from openai import OpenAI
-import os
+import random
 
-client = OpenAI(api_key=os.environ.get("OPENAI_API_KEY"))
+FALLBACK_CAPTIONS = [
+    "Keep pushing forward! 💪 #Motivation #Success #Grind",
+    "Dream big and work hard 🚀 #Inspiration #DailyMotivation #DreamBig",
+    "Don’t stop until you’re proud 🔥 #NeverGiveUp #StayStrong",
+    "Every day is a new opportunity 🌱 #Mindset #Positivity #Growth",
+    "Small steps lead to big victories 🏆 #Focus #Discipline #Consistency",
+    "Your only limit is you 💫 #Believe #SelfGrowth #Motivation",
+    "Stay positive, work hard, make it happen 💥 #SuccessMindset #Hustle",
+    "Push yourself, because no one else will 💪 #Grind #MotivationDaily",
+    "Turn your dreams into reality 🌟 #Inspiration #HardWorkPaysOff",
+    "Consistency is key 🔑 #Discipline #Growth #DailyMotivation"
+]
 
-def generate_caption(file_title: str) -> str:
+def generate_caption(file_name=None):
     """
-    Generate an engaging motivational caption with relevant hashtags for YouTube Shorts.
-    Handles numbered file titles automatically.
+    Always returns a random motivational caption with hashtags.
+    Ignores file_name entirely.
     """
-    # If file title is numeric, provide default context
-    if file_title.replace(".mp4", "").isnumeric():
-        video_context = "This is a motivational short about success, money-making, and inspiration."
-    else:
-        video_context = file_title
-
-    prompt = f"""
-    Generate a catchy, motivational caption for a YouTube Shorts video.
-    Video context: "{video_context}"
-    Include 10-15 highly relevant hashtags at the end for maximum reach on YouTube Shorts.
-    Target audience: 12-25 years old.
-    Keep it engaging, inspiring, and not too long.
-    Format: Caption text, then hashtags on a new line.
-    """
-
-    try:
-        response = client.chat.completions.create(
-            model="gpt-4o-mini",
-            messages=[{"role": "user", "content": prompt}],
-            temperature=0.7,
-            max_tokens=120
-        )
-        caption = response.choices[0].message.content.strip()
-        return caption
-    except Exception as e:
-        print(f"❌ Error generating caption: {e}")
-        fallback_caption = f"Watch this amazing short: {video_context}\n#motivation #money #success #shorts #viral #inspiration"
-        return fallback_caption
+    return random.choice(FALLBACK_CAPTIONS)
