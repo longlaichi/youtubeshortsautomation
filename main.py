@@ -1,98 +1,133 @@
-import base64
-import json
 import os
-import pickle
-from pydrive2.auth import GoogleAuth
-from pydrive2.drive import GoogleDrive
+import json
+import random
+import requests
+import subprocess
 from googleapiclient.discovery import build
 from googleapiclient.http import MediaFileUpload
-from google_auth_oauthlib.flow import InstalledAppFlow
-from google.auth.transport.requests import Request
+import pickle
+import openai
 from caption_generator import generate_caption
 
-# ======================
-# Google Drive Auth
-# ======================
-from pydrive2.auth import GoogleAuth
-from pydrive2.drive import GoogleDrive
-from google.oauth2.service_account import Credentials
-import json
-import os
+# Load OpenAI API key
+openai.api_key = os.getenv("OPENAI_API_KEY")
 
-def authenticate_google_drive():
-    creds = Credentials.from_service_account_file(
-        "service_account.json",
-        scopes=["https://www.googleapis.com/auth/drive"]
-    )
+# Load YouTube token.pkl
+def authenticate_youtube():
+    with open("youtube_token.pkl", "rb") as f:
+        creds = pickle.load(f)
+    youtube = build("youtube", "v3", credentials=creds)
+    return youtube
 
-    gauth = GoogleAuth()
-    gauth.credentials = creds
-    return GoogleDrive(gauth)
+# Load posted.json to avoid reuploads
+def load_posted():
+    if os.path.exists("posted.json"):
+        with open("posted.json", "r") as f:
+            return set(json.load(f))
+    return set()
 
-# ======================
-# YouTube API Auth
-# ======================
-def get_youtube_credentials():
-    creds = None
-    if os.path.exists("youtube_token.pkl"):
-        with open("youtube_token.pkl", "rb") as token:
-            creds = pickle.load(token)
+def save_posted(posted):
+    with open("posted.json", "w") as f:
+        json.dump(list(posted), f)
 
-    # Refresh if expired
-    if creds and creds.expired and creds.refresh_token:
-        creds.refresh(Request())
-        with open("youtube_token.pkl", "wb") as token:
-            pickle.dump(creds, token)
+# Fallback captions
+FALLBACK_CAPTIONS = [
+    "Keep grinding 💪 Success is coming! #Motivation #Success #Grind",
+    "Your only limit is you 🚀 #Inspiration #DailyMotivation #DreamBig",
+    "Don’t stop until you’re proud 🔥 #NeverGiveUp #StayStrong",
+    "Every day is a new chance to grow 🌱 #Mindset #Positivity",
+    "Small steps lead to big results 🏆 #Focus #Discipline",
+] * 20  # total 100
 
-    return creds
+# Pick random fallback caption
+def get_random_caption():
+    return random.choice(FALLBACK_CAPTIONS)
 
-# ======================
-# Main Posting Logic
-# ======================
-def main():
-    drive = authenticate_google_drive()
-    youtube = authenticate_youtube()
+# Download file from public GDrive link
+def download_from_gdrive(file_id, filename):
+    url = f"https://drive.google.com/uc?export=download&id={file_id}"
+    r = requests.get(url, stream=True)
+    if r.status_code == 200:
+        with open(filename, "wb") as f:
+            for chunk in r.iter_content(1024):
+                f.write(chunk)
+        return True
+    return False
 
-    folder_ids = os.environ["DRIVE_FOLDER_IDS"].split(",")
-    all_files = []
-    for folder_id in folder_ids:
-        file_list = drive.ListFile({'q': f"'{folder_id}' in parents and trashed=false"}).GetList()
-        all_files.extend(file_list)
+# Process video with ffmpeg
+def process_video(input_file, output_file):
+    cmd = [
+        "ffmpeg", "-i", input_file,
+        "-vf", "scale=1080:1920:force_original_aspect_ratio=decrease,pad=1080:1920:(ow-iw)/2:(oh-ih)/2",
+        "-c:a", "aac", "-b:a", "128k",
+        "-c:v", "libx264", "-preset", "slow", "-crf", "18",
+        output_file, "-y"
+    ]
+    subprocess.run(cmd, check=True)
 
-    if not all_files:
-        print("No files found in Google Drive folders.")
-        return
-
-    first_file = all_files[0]
-    video_filename = first_file['title']
-    print("Downloading:", video_filename)
-    first_file.GetContentFile(video_filename)
-
-    caption = generate_caption(video_filename)
-
-    media_file = MediaFileUpload(video_filename, chunksize=-1, resumable=True)
-    request = youtube.videos().insert(
-        part="snippet,status",
-        body={
-            "snippet": {
-                "title": video_filename,
-                "description": caption,
-                "tags": ["motivation", "shorts", "AI-generated"],
-                "categoryId": "22",
-            },
-            "status": {"privacyStatus": "public"}
+# Upload to YouTube Shorts
+def upload_to_youtube(youtube, video_file, title, description):
+    body = {
+        "snippet": {
+            "title": title,
+            "description": description,
+            "tags": ["motivation", "inspiration", "shorts", "success", "discipline"],
+            "categoryId": "22"  # People & Blogs
         },
-        media_body=media_file
-    )
+        "status": {"privacyStatus": "public"}
+    }
 
-    response = None
-    while response is None:
-        status, response = request.next_chunk()
-        if status:
-            print(f"Uploading... {int(status.progress() * 100)}%")
+    media = MediaFileUpload(video_file, chunksize=-1, resumable=True)
+    request = youtube.videos().insert(part="snippet,status", body=body, media_body=media)
+    response = request.execute()
+    return response
 
-    print("Uploaded successfully:", video_filename)
-    os.remove(video_filename)
+def main():
+    youtube = authenticate_youtube()
+    posted = load_posted()
+    folder_ids = os.getenv("DRIVE_FOLDER_IDS").split(",")
+
+    for folder_id in folder_ids:
+        # For simplicity: assume file IDs are in DRIVE_FOLDER_IDS (public links pre-collected)
+        file_id = folder_id.strip()
+        if file_id in posted:
+            continue
+
+        # Check extension first
+        filename = f"{file_id}.mp4"
+        if not download_from_gdrive(file_id, filename):
+            print(f"Skipping {file_id}, could not download.")
+            continue
+
+        if not filename.endswith(".mp4"):
+            print(f"Skipping {file_id}, not a video.")
+            continue
+
+        processed_file = f"processed_{filename}"
+        process_video(filename, processed_file)
+
+        # Try caption generation
+        try:
+            caption = generate_caption(filename)
+            if not caption or caption.strip() == "":
+                raise Exception("Empty caption")
+        except Exception as e:
+            print("Caption generation failed, using fallback.", e)
+            caption = get_random_caption()
+
+        title = caption[:100]  # Shorts title limit
+        description = caption
+
+        response = upload_to_youtube(youtube, processed_file, title, description)
+        print("Uploaded:", response)
+
+        posted.add(file_id)
+        save_posted(posted)
+
+        # Clean up
+        os.remove(filename)
+        os.remove(processed_file)
+        break  # post only one per run
 
 if __name__ == "__main__":
     main()
