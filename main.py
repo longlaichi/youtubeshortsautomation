@@ -16,6 +16,8 @@ SCOPES = [
     "https://www.googleapis.com/auth/youtube.upload"
 ]
 
+POSTED_FILE = "posted.json"
+
 FALLBACK_CAPTIONS = [
     "Keep grinding 💪 Success is coming! #Motivation #Success #Grind",
     "Your only limit is you 🚀 #Inspiration #DailyMotivation #DreamBig",
@@ -25,17 +27,24 @@ FALLBACK_CAPTIONS = [
 ] * 20
 
 # -----------------------------
-# Helper Functions
+# Posted video helper
 # -----------------------------
 def load_posted():
-    if os.path.exists("posted.json"):
-        with open("posted.json", "r") as f:
-            return json.load(f)
+    if os.path.exists(POSTED_FILE):
+        try:
+            with open(POSTED_FILE, "r") as f:
+                return json.load(f)
+        except Exception as e:
+            print(f"❌ Failed to load {POSTED_FILE}: {e}")
     return []
 
 def save_posted(posted):
-    with open("posted.json", "w") as f:
-        json.dump(posted, f, indent=2)
+    try:
+        with open(POSTED_FILE, "w") as f:
+            json.dump(posted, f, indent=2)
+        print(f"✅ Updated {POSTED_FILE} with {len(posted)} videos")
+    except Exception as e:
+        print(f"❌ Failed to save {POSTED_FILE}: {e}")
 
 def get_random_caption():
     return random.choice(FALLBACK_CAPTIONS)
@@ -45,8 +54,13 @@ def get_random_caption():
 # -----------------------------
 def authenticate_drive():
     from oauth2client.service_account import ServiceAccountCredentials
-    creds_dict = json.loads(os.environ["GOOGLE_SERVICE_ACCOUNT"])
+    service_account_json = os.environ.get("GOOGLE_SERVICE_ACCOUNT")
+    if not service_account_json:
+        raise ValueError("GOOGLE_SERVICE_ACCOUNT environment variable not set!")
+    
+    creds_dict = json.loads(service_account_json)
     credentials = ServiceAccountCredentials.from_json_keyfile_dict(creds_dict, SCOPES)
+    
     gauth = GoogleAuth()
     gauth.credentials = credentials
     return GoogleDrive(gauth)
@@ -62,6 +76,7 @@ def get_next_file(drive, folder_ids, posted_ids):
 def download_file(drive, file_id, filename):
     file = drive.CreateFile({'id': file_id})
     file.GetContentFile(filename)
+    print(f"✅ Downloaded {filename}")
 
 # -----------------------------
 # FFmpeg Processing
@@ -77,12 +92,17 @@ def ffmpeg_process(input_path, output_path):
         output_path
     ]
     subprocess.run(cmd, check=True)
+    print(f"✅ Processed video saved as {output_path}")
 
 # -----------------------------
 # YouTube Upload
 # -----------------------------
 def authenticate_youtube():
-    creds_dict = json.loads(os.environ["GOOGLE_SERVICE_ACCOUNT"])
+    service_account_json = os.environ.get("GOOGLE_SERVICE_ACCOUNT")
+    if not service_account_json:
+        raise ValueError("GOOGLE_SERVICE_ACCOUNT environment variable not set!")
+    
+    creds_dict = json.loads(service_account_json)
     creds = service_account.Credentials.from_service_account_info(creds_dict, scopes=SCOPES)
     return build("youtube", "v3", credentials=creds)
 
@@ -108,14 +128,15 @@ def main():
     print("🔑 Authenticating Google Drive and YouTube...")
     drive = authenticate_drive()
     youtube = authenticate_youtube()
+    
     posted_ids = load_posted()
-
+    
     folder_ids_str = os.getenv("DRIVE_FOLDER_ID")
     if not folder_ids_str:
         raise ValueError("DRIVE_FOLDER_ID environment variable not set!")
-    folder_ids = folder_ids_str.split(",")  # support multiple IDs separated by commas
-
-    print(f"📂 Looking in folders: {folder_ids}")
+    folder_ids = [fid.strip() for fid in folder_ids_str.split(",") if fid.strip()]
+    
+    print(f"📂 Searching in folders: {folder_ids}")
     file_id, file_title = get_next_file(drive, folder_ids, posted_ids)
     if not file_id:
         print("🎉 All videos already posted!")
@@ -140,7 +161,7 @@ def main():
 
     os.remove(local_file)
     os.remove(processed_file)
-    print("🧹 Cleanup done. Process finished.")
+    print("🧹 Cleanup done. Process finished successfully!")
 
 if __name__ == "__main__":
     main()
