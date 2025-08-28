@@ -32,13 +32,19 @@ def authenticate_google_drive():
 # ======================
 # YouTube API Auth
 # ======================
-def authenticate_youtube():
-    flow = InstalledAppFlow.from_client_secrets_file(
-        "client_secret.json",
-        scopes=["https://www.googleapis.com/auth/youtube.upload"]
-    )
-    creds = flow.run_local_server(port=0)
-    return build("youtube", "v3", credentials=creds)
+def get_youtube_credentials():
+    creds = None
+    if os.path.exists("youtube_token.pkl"):
+        with open("youtube_token.pkl", "rb") as token:
+            creds = pickle.load(token)
+
+    # Refresh if expired
+    if creds and creds.expired and creds.refresh_token:
+        creds.refresh(Request())
+        with open("youtube_token.pkl", "wb") as token:
+            pickle.dump(creds, token)
+
+    return creds
 
 # ======================
 # Main Posting Logic
