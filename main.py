@@ -20,13 +20,15 @@ import json
 import os
 
 def authenticate_google_drive():
-    creds_json = os.environ["GDRIVE_CREDS_JSON_B64"]
-    creds_dict = json.loads(base64.b64decode(creds_json).decode("utf-8"))
-    creds = Credentials.from_service_account_info(creds_dict, scopes=["https://www.googleapis.com/auth/drive"])
-    
+    creds = Credentials.from_service_account_file(
+        "gdrive_service_account.json",
+        scopes=["https://www.googleapis.com/auth/drive"]
+    )
+
     gauth = GoogleAuth()
     gauth.credentials = creds
     return GoogleDrive(gauth)
+
 # ======================
 # YouTube API Auth
 # ======================
