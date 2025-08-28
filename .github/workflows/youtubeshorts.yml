@@ -33,21 +33,21 @@ jobs:
         run: |
           echo "${{ secrets.GDRIVE_CREDS_JSON_B64 }}" | base64 --decode > gdrive_service_account.json
 
-        # Run main.py
+      # Run main.py
       - name: Run main.py
         env:
           OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
           DRIVE_FOLDER_IDS: ${{ secrets.DRIVE_FOLDER_IDS }}
         run: python main.py
 
-      # Commit posted.json if changed
-      - name: Commit posted.json
+      # Commit posted.json and youtube_token.pkl if changed
+      - name: Commit updates
         run: |
           if [[ -n "$(git status --porcelain)" ]]; then
             git config user.name "github-actions[bot]"
             git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-            git add posted.json
-            git commit -m "Update posted log [skip ci]"
+            git add posted.json youtube_token.pkl
+            git commit -m "Update logs and token [skip ci]"
             git push
           else
             echo "No changes to commit."
