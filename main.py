@@ -11,9 +11,10 @@ from google.oauth2 import service_account
 # -----------------------------
 # CONFIG
 # -----------------------------
-SERVICE_ACCOUNT_FILE = "service_account.json"  # Handle via secrets
-SCOPES = ["https://www.googleapis.com/auth/drive.readonly",
-          "https://www.googleapis.com/auth/youtube.upload"]
+SCOPES = [
+    "https://www.googleapis.com/auth/drive.readonly",
+    "https://www.googleapis.com/auth/youtube.upload"
+]
 
 FALLBACK_CAPTIONS = [
     "Keep grinding 💪 Success is coming! #Motivation #Success #Grind",
@@ -21,7 +22,7 @@ FALLBACK_CAPTIONS = [
     "Don’t stop until you’re proud 🔥 #NeverGiveUp #StayStrong",
     "Every day is a new chance to grow 🌱 #Mindset #Positivity",
     "Small steps lead to big results 🏆 #Focus #Discipline",
-] * 20  # repeat for randomness
+] * 20
 
 # -----------------------------
 # Helper Functions
@@ -81,7 +82,8 @@ def ffmpeg_process(input_path, output_path):
 # YouTube Upload
 # -----------------------------
 def authenticate_youtube():
-    creds = service_account.Credentials.from_service_account_file(SERVICE_ACCOUNT_FILE, scopes=SCOPES)
+    creds_dict = json.loads(os.environ["GOOGLE_SERVICE_ACCOUNT"])
+    creds = service_account.Credentials.from_service_account_info(creds_dict, scopes=SCOPES)
     return build("youtube", "v3", credentials=creds)
 
 def upload_to_youtube(youtube, video_file, title, description):
@@ -107,9 +109,13 @@ def main():
     drive = authenticate_drive()
     youtube = authenticate_youtube()
     posted_ids = load_posted()
-    folder_ids = os.environ["DRIVE_FOLDER_IDS"].split(",")
 
-    print("📂 Looking for next video to upload...")
+    folder_ids_str = os.getenv("DRIVE_FOLDER_ID")
+    if not folder_ids_str:
+        raise ValueError("DRIVE_FOLDER_ID environment variable not set!")
+    folder_ids = folder_ids_str.split(",")  # support multiple IDs separated by commas
+
+    print(f"📂 Looking in folders: {folder_ids}")
     file_id, file_title = get_next_file(drive, folder_ids, posted_ids)
     if not file_id:
         print("🎉 All videos already posted!")
@@ -125,14 +131,13 @@ def main():
     print("✍️ Generating caption...")
     caption = get_random_caption()
 
-    print("📤 Uploading to YouTube...")
+    print(f"📤 Uploading to YouTube: {file_title}")
     video_id = upload_to_youtube(youtube, processed_file, caption, caption)
     print(f"✅ Uploaded video ID: {video_id}")
 
     posted_ids.append(file_id)
     save_posted(posted_ids)
 
-    # Cleanup
     os.remove(local_file)
     os.remove(processed_file)
     print("🧹 Cleanup done. Process finished.")
