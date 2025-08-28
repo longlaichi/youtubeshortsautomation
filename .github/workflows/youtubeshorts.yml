@@ -39,7 +39,7 @@ jobs:
         run: |
           python main.py
 
-            - name: Save posted.json
+      - name: Save posted.json
         uses: stefanzweifel/git-auto-commit-action@v4
         with:
           commit_message: "Update posted.json after upload"
