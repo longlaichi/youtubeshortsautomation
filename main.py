@@ -39,7 +39,6 @@ FALLBACK_CAPTIONS = [
     "Small steps lead to big results 🏆 #Focus #Discipline",
 ] * 20  # total 100
 
-# Pick random fallback caption
 def get_random_caption():
     return random.choice(FALLBACK_CAPTIONS)
 
@@ -72,7 +71,7 @@ def upload_to_youtube(youtube, video_file, title, description):
             "title": title,
             "description": description,
             "tags": ["motivation", "inspiration", "shorts", "success", "discipline"],
-            "categoryId": "22"  # People & Blogs
+            "categoryId": "22"
         },
         "status": {"privacyStatus": "public"}
     }
@@ -82,52 +81,61 @@ def upload_to_youtube(youtube, video_file, title, description):
     response = request.execute()
     return response
 
+# Extract file IDs from public Google Drive folder page
+def get_files_in_folder(folder_id):
+    # This works for folders with public access
+    url = f"https://drive.google.com/drive/folders/{folder_id}"
+    # Use Google Drive API or scraping if needed; here, assume folder contains direct file links manually collected
+    # Replace this with your method of collecting file IDs from the folder
+    # For simplicity, assume folder ID itself is a comma-separated list of file IDs
+    return folder_id.split(",")
+
 def main():
     youtube = authenticate_youtube()
     posted = load_posted()
     folder_ids = os.getenv("DRIVE_FOLDER_IDS").split(",")
 
     for folder_id in folder_ids:
-        # For simplicity: assume file IDs are in DRIVE_FOLDER_IDS (public links pre-collected)
-        file_id = folder_id.strip()
-        if file_id in posted:
-            continue
+        file_ids = get_files_in_folder(folder_id.strip())
 
-        # Check extension first
-        filename = f"{file_id}.mp4"
-        if not download_from_gdrive(file_id, filename):
-            print(f"Skipping {file_id}, could not download.")
-            continue
+        for file_id in file_ids:
+            if file_id in posted:
+                continue
 
-        if not filename.endswith(".mp4"):
-            print(f"Skipping {file_id}, not a video.")
-            continue
+            filename = f"{file_id}.mp4"
+            if not download_from_gdrive(file_id, filename):
+                print(f"Skipping {file_id}, could not download.")
+                continue
 
-        processed_file = f"processed_{filename}"
-        process_video(filename, processed_file)
+            if not filename.endswith(".mp4"):
+                print(f"Skipping {file_id}, not a video.")
+                continue
 
-        # Try caption generation
-        try:
-            caption = generate_caption(filename)
-            if not caption or caption.strip() == "":
-                raise Exception("Empty caption")
-        except Exception as e:
-            print("Caption generation failed, using fallback.", e)
-            caption = get_random_caption()
+            processed_file = f"processed_{filename}"
+            process_video(filename, processed_file)
 
-        title = caption[:100]  # Shorts title limit
-        description = caption
+            try:
+                caption = generate_caption(filename)
+                if not caption.strip():
+                    raise Exception("Empty caption")
+            except Exception as e:
+                print("Caption generation failed, using fallback.", e)
+                caption = get_random_caption()
 
-        response = upload_to_youtube(youtube, processed_file, title, description)
-        print("Uploaded:", response)
+            title = caption[:100]
+            description = caption
 
-        posted.add(file_id)
-        save_posted(posted)
+            response = upload_to_youtube(youtube, processed_file, title, description)
+            print("Uploaded:", response)
 
-        # Clean up
-        os.remove(filename)
-        os.remove(processed_file)
-        break  # post only one per run
+            posted.add(file_id)
+            save_posted(posted)
+
+            os.remove(filename)
+            os.remove(processed_file)
+
+            break  # post only one video per workflow run
+        break  # post from only one folder per workflow run
 
 if __name__ == "__main__":
     main()
