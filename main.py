@@ -7,11 +7,6 @@ from googleapiclient.discovery import build
 from googleapiclient.http import MediaFileUpload
 import pickle
 from caption_generator import generate_caption
-from bs4 import BeautifulSoup
-
-# Load OpenAI API key
-openai_api_key = os.getenv("OPENAI_API_KEY")
-os.environ["OPENAI_API_KEY"] = openai_api_key
 
 # -----------------------------
 # YouTube Authentication using pickle
@@ -50,33 +45,8 @@ def get_random_caption():
     return random.choice(FALLBACK_CAPTIONS)
 
 # -----------------------------
-# Google Drive Helpers
+# Download file from Google Drive
 # -----------------------------
-def get_file_ids_in_folder(folder_id):
-    """
-    Fetch all file IDs from a public Google Drive folder
-    """
-    folder_url = f"https://drive.google.com/drive/folders/{folder_id}"
-    r = requests.get(folder_url)
-    if r.status_code != 200:
-        print(f"Could not fetch folder {folder_id}")
-        return []
-
-    soup = BeautifulSoup(r.text, "html.parser")
-    file_ids = set()
-
-    # Find all links containing "id=" which are likely files
-    for a in soup.find_all("a", href=True):
-        href = a['href']
-        if "/file/d/" in href:
-            fid = href.split("/file/d/")[1].split("/")[0]
-            file_ids.add(fid)
-        elif "id=" in href:
-            fid = href.split("id=")[1].split("&")[0]
-            file_ids.add(fid)
-
-    return list(file_ids)
-
 def download_from_gdrive(file_id, filename):
     url = f"https://drive.google.com/uc?export=download&id={file_id}"
     r = requests.get(url, stream=True)
@@ -128,7 +98,23 @@ def main():
 
     for folder_id in folder_ids:
         folder_id = folder_id.strip()
-        file_ids = get_file_ids_in_folder(folder_id)
+        # Get list of files in folder using Google Drive public folder link scraping
+        file_ids = []
+        folder_url = f"https://drive.google.com/drive/folders/{folder_id}"
+        try:
+            from bs4 import BeautifulSoup
+            import requests
+            r = requests.get(folder_url)
+            if r.status_code == 200:
+                soup = BeautifulSoup(r.text, "html.parser")
+                for a in soup.find_all("a", href=True):
+                    href = a['href']
+                    if "/file/d/" in href:
+                        fid = href.split("/file/d/")[1].split("/")[0]
+                        file_ids.append(fid)
+        except Exception as e:
+            print(f"Failed to fetch files from folder {folder_id}: {e}")
+            continue
 
         for file_id in file_ids:
             if file_id in posted:
@@ -165,6 +151,7 @@ def main():
             posted.add(file_id)
             save_posted(posted)
 
+            # Clean up
             os.remove(filename)
             os.remove(processed_file)
             break  # Post only one per run
