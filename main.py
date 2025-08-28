@@ -21,7 +21,7 @@ import os
 
 def authenticate_google_drive():
     creds = Credentials.from_service_account_file(
-        "gdrive_service_account.json",
+        "service_account.json",
         scopes=["https://www.googleapis.com/auth/drive"]
     )
 
