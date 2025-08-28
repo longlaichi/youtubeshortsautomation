@@ -34,7 +34,8 @@ jobs:
       - name: Run upload script
         env:
           OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
-          DRIVE_FOLDER_IDS: ${{ secrets.DRIVE_FOLDER_IDS }}
+          DRIVE_FOLDER_ID: ${{ secrets.DRIVE_FOLDER_ID }}
+          GOOGLE_APPLICATION_CREDENTIALS: ${{ secrets.GOOGLE_SERVICE_ACCOUNT_JSON }}
         run: |
           python main.py
 
