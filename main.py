@@ -2,19 +2,19 @@ import os
 import json
 import random
 import subprocess
+import pickle
+import base64
 from pydrive2.auth import GoogleAuth
 from pydrive2.drive import GoogleDrive
 from googleapiclient.discovery import build
 from googleapiclient.http import MediaFileUpload
-from google.oauth2 import service_account
+from google.oauth2.credentials import Credentials
 
 # -----------------------------
 # CONFIG
 # -----------------------------
-SCOPES = [
-    "https://www.googleapis.com/auth/drive.readonly",
-    "https://www.googleapis.com/auth/youtube.upload"
-]
+SCOPES_DRIVE = ["https://www.googleapis.com/auth/drive.readonly"]
+SCOPES_YT = ["https://www.googleapis.com/auth/youtube.upload"]
 
 POSTED_FILE = "posted.json"
 
@@ -57,10 +57,10 @@ def authenticate_drive():
     service_account_json = os.environ.get("GOOGLE_SERVICE_ACCOUNT")
     if not service_account_json:
         raise ValueError("GOOGLE_SERVICE_ACCOUNT environment variable not set!")
-    
+
     creds_dict = json.loads(service_account_json)
-    credentials = ServiceAccountCredentials.from_json_keyfile_dict(creds_dict, SCOPES)
-    
+    credentials = ServiceAccountCredentials.from_json_keyfile_dict(creds_dict, SCOPES_DRIVE)
+
     gauth = GoogleAuth()
     gauth.credentials = credentials
     return GoogleDrive(gauth)
@@ -95,15 +95,14 @@ def ffmpeg_process(input_path, output_path):
     print(f"✅ Processed video saved as {output_path}")
 
 # -----------------------------
-# YouTube Upload
+# YouTube Upload using token from GitHub secret
 # -----------------------------
 def authenticate_youtube():
-    service_account_json = os.environ.get("GOOGLE_SERVICE_ACCOUNT")
-    if not service_account_json:
-        raise ValueError("GOOGLE_SERVICE_ACCOUNT environment variable not set!")
-    
-    creds_dict = json.loads(service_account_json)
-    creds = service_account.Credentials.from_service_account_info(creds_dict, scopes=SCOPES)
+    b64_token = os.environ.get("YOUTUBE_TOKEN_B64")
+    if not b64_token:
+        raise ValueError("YOUTUBE_TOKEN_B64 secret not set!")
+    token_bytes = base64.b64decode(b64_token)
+    creds = pickle.loads(token_bytes)
     return build("youtube", "v3", credentials=creds)
 
 def upload_to_youtube(youtube, video_file, title, description):
@@ -128,14 +127,14 @@ def main():
     print("🔑 Authenticating Google Drive and YouTube...")
     drive = authenticate_drive()
     youtube = authenticate_youtube()
-    
+
     posted_ids = load_posted()
-    
+
     folder_ids_str = os.getenv("DRIVE_FOLDER_ID")
     if not folder_ids_str:
         raise ValueError("DRIVE_FOLDER_ID environment variable not set!")
     folder_ids = [fid.strip() for fid in folder_ids_str.split(",") if fid.strip()]
-    
+
     print(f"📂 Searching in folders: {folder_ids}")
     file_id, file_title = get_next_file(drive, folder_ids, posted_ids)
     if not file_id:
