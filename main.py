@@ -7,6 +7,8 @@ from googleapiclient.discovery import build
 from googleapiclient.http import MediaFileUpload
 import pickle
 from caption_generator import generate_caption
+from bs4 import BeautifulSoup
+import re
 
 # -----------------------------
 # YouTube Authentication using pickle
@@ -27,10 +29,10 @@ def load_posted():
     if os.path.exists("posted.json"):
         with open("posted.json", "r") as f:
             posted = set(json.load(f))
-    else:
-        posted = set()
-    print(f"Loaded posted.json, {len(posted)} files already posted.")
-    return posted
+            print(f"Loaded posted.json, {len(posted)} files already posted.")
+            return posted
+    print("No posted.json found, starting fresh.")
+    return set()
 
 def save_posted(posted):
     with open("posted.json", "w") as f:
@@ -52,26 +54,44 @@ def get_random_caption():
     return random.choice(FALLBACK_CAPTIONS)
 
 # -----------------------------
-# Download file from Google Drive
+# Public Google Drive Folder Scraping
+# -----------------------------
+def get_file_ids_from_public_folder(folder_url):
+    print(f"Fetching files from folder {folder_url}...")
+    r = requests.get(folder_url)
+    if r.status_code != 200:
+        print("Failed to access folder URL.")
+        return []
+    
+    soup = BeautifulSoup(r.text, "html.parser")
+    file_ids = set()
+    for a in soup.find_all("a", href=True):
+        href = a['href']
+        if "/file/d/" in href:
+            fid = href.split("/file/d/")[1].split("/")[0]
+            file_ids.add(fid)
+        elif "id=" in href:
+            fid = href.split("id=")[1].split("&")[0]
+            file_ids.add(fid)
+    print(f"Found {len(file_ids)} files in the folder.")
+    return list(file_ids)
+
+# -----------------------------
+# Download & Process
 # -----------------------------
 def download_from_gdrive(file_id, filename):
-    print(f"Downloading file {file_id}...")
     url = f"https://drive.google.com/uc?export=download&id={file_id}"
     r = requests.get(url, stream=True)
     if r.status_code == 200:
         with open(filename, "wb") as f:
             for chunk in r.iter_content(1024):
                 f.write(chunk)
-        print(f"Downloaded {filename}.")
+        print(f"Downloaded {filename}")
         return True
-    print(f"Failed to download {file_id}.")
+    print(f"Failed to download {file_id}")
     return False
 
-# -----------------------------
-# Video Processing
-# -----------------------------
 def process_video(input_file, output_file):
-    print(f"Processing video {input_file}...")
     cmd = [
         "ffmpeg", "-i", input_file,
         "-vf", "scale=1080:1920:force_original_aspect_ratio=decrease,pad=1080:1920:(ow-iw)/2:(oh-ih)/2",
@@ -80,13 +100,12 @@ def process_video(input_file, output_file):
         output_file, "-y"
     ]
     subprocess.run(cmd, check=True)
-    print(f"Video processed: {output_file}")
+    print(f"Processed {output_file}")
 
 # -----------------------------
-# YouTube Upload
+# Upload to YouTube
 # -----------------------------
 def upload_to_youtube(youtube, video_file, title, description):
-    print(f"Uploading {video_file} to YouTube...")
     body = {
         "snippet": {
             "title": title,
@@ -99,7 +118,7 @@ def upload_to_youtube(youtube, video_file, title, description):
     media = MediaFileUpload(video_file, chunksize=-1, resumable=True)
     request = youtube.videos().insert(part="snippet,status", body=body, media_body=media)
     response = request.execute()
-    print(f"Uploaded: {video_file} successfully.")
+    print(f"Uploaded: {video_file}")
     return response
 
 # -----------------------------
@@ -108,66 +127,45 @@ def upload_to_youtube(youtube, video_file, title, description):
 def main():
     youtube = authenticate_youtube()
     posted = load_posted()
-    folder_ids = os.getenv("DRIVE_FOLDER_IDS").split(",")
 
-    for folder_id in folder_ids:
-        folder_id = folder_id.strip()
-        print(f"Fetching files from folder {folder_id}...")
-        file_ids = []
-        try:
-            from bs4 import BeautifulSoup
-            r = requests.get(f"https://drive.google.com/drive/folders/{folder_id}")
-            if r.status_code == 200:
-                soup = BeautifulSoup(r.text, "html.parser")
-                for a in soup.find_all("a", href=True):
-                    href = a['href']
-                    if "/file/d/" in href:
-                        fid = href.split("/file/d/")[1].split("/")[0]
-                        file_ids.append(fid)
-            print(f"Found {len(file_ids)} files in folder {folder_id}.")
-        except Exception as e:
-            print(f"Failed to fetch files from folder {folder_id}: {e}")
+    folder_url = "https://drive.google.com/drive/folders/1svFyekf17TKmZ28gtwZqiT5M9I3HbD01"
+    file_ids = get_file_ids_from_public_folder(folder_url)
+
+    for file_id in file_ids:
+        if file_id in posted:
             continue
 
-        for file_id in file_ids:
-            if file_id in posted:
-                print(f"Skipping {file_id}, already posted.")
-                continue
+        filename = f"{file_id}.mp4"
+        if not download_from_gdrive(file_id, filename):
+            continue
 
-            filename = f"{file_id}.mp4"
-            if not download_from_gdrive(file_id, filename):
-                continue
+        if not filename.endswith(".mp4"):
+            print(f"Skipping {filename}, not a video.")
+            continue
 
-            if not filename.endswith(".mp4"):
-                print(f"Skipping {file_id}, not a video.")
-                continue
+        processed_file = f"processed_{filename}"
+        process_video(filename, processed_file)
 
-            processed_file = f"processed_{filename}"
-            process_video(filename, processed_file)
+        # Caption
+        try:
+            caption = generate_caption(filename)
+            if not caption or caption.strip() == "":
+                raise Exception("Empty caption")
+        except Exception as e:
+            print("Caption generation failed, using fallback.", e)
+            caption = get_random_caption()
 
-            # Try caption generation
-            try:
-                caption = generate_caption(filename)
-                if not caption or caption.strip() == "":
-                    raise Exception("Empty caption")
-                print("Caption generated successfully.")
-            except Exception as e:
-                print("Caption generation failed, using fallback.", e)
-                caption = get_random_caption()
+        title = caption[:100]
+        description = caption
 
-            title = caption[:100]  # Shorts title limit
-            description = caption
+        upload_to_youtube(youtube, processed_file, title, description)
 
-            response = upload_to_youtube(youtube, processed_file, title, description)
+        posted.add(file_id)
+        save_posted(posted)
 
-            posted.add(file_id)
-            save_posted(posted)
-
-            # Clean up
-            os.remove(filename)
-            os.remove(processed_file)
-            print("Cleanup done.")
-            break  # Post only one per run
+        os.remove(filename)
+        os.remove(processed_file)
+        break  # post only one per run
 
 if __name__ == "__main__":
     main()
