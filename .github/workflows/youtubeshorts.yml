@@ -37,6 +37,7 @@ jobs:
         env:
           GOOGLE_SERVICE_ACCOUNT: ${{ secrets.GOOGLE_SERVICE_ACCOUNT }}
           DRIVE_FOLDER_ID: ${{ secrets.DRIVE_FOLDER_IDS }}  # comma-separated IDs
+          YOUTUBE_TOKEN_B64: ${{ secrets.YOUTUBE_TOKEN_B64 }} # base64 encoded youtube_token.pkl
         run: python main.py
 
       - name: Commit posted.json if changed
