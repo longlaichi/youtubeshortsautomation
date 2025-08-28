@@ -1,25 +1,42 @@
 import os
 import json
 import random
-import requests
 import subprocess
 from googleapiclient.discovery import build
 from googleapiclient.http import MediaFileUpload
-import pickle
+from google.oauth2 import service_account
 from caption_generator import generate_caption
-from bs4 import BeautifulSoup
-import re
 
 # -----------------------------
-# YouTube Authentication using pickle
+# CONFIG
+# -----------------------------
+SERVICE_ACCOUNT_FILE = "service_account.json"  # Upload this to repo (or handle via secrets)
+SCOPES = ["https://www.googleapis.com/auth/drive.readonly",
+          "https://www.googleapis.com/auth/youtube.upload"]
+
+# -----------------------------
+# YouTube Authentication
 # -----------------------------
 def authenticate_youtube():
     print("Authenticating YouTube...")
     with open("youtube_token.pkl", "rb") as f:
+        import pickle
         creds = pickle.load(f)
     youtube = build("youtube", "v3", credentials=creds)
     print("YouTube authentication completed.")
     return youtube
+
+# -----------------------------
+# Drive Authentication
+# -----------------------------
+def authenticate_drive():
+    print("Authenticating Google Drive API...")
+    creds = service_account.Credentials.from_service_account_file(
+        SERVICE_ACCOUNT_FILE, scopes=SCOPES
+    )
+    drive_service = build("drive", "v3", credentials=creds)
+    print("Drive authentication completed.")
+    return drive_service
 
 # -----------------------------
 # Posted JSON Handling
@@ -28,16 +45,16 @@ def load_posted():
     print("Loading posted.json...")
     if os.path.exists("posted.json"):
         with open("posted.json", "r") as f:
-            posted = set(json.load(f))
-            print(f"Loaded posted.json, {len(posted)} files already posted.")
-            return posted
+            data = set(json.load(f))
+            print(f"Loaded posted.json, {len(data)} files already posted.")
+            return data
     print("No posted.json found, starting fresh.")
     return set()
 
 def save_posted(posted):
     with open("posted.json", "w") as f:
         json.dump(list(posted), f)
-    print("posted.json updated.")
+    print("Updated posted.json.")
 
 # -----------------------------
 # Fallback Captions
@@ -54,44 +71,37 @@ def get_random_caption():
     return random.choice(FALLBACK_CAPTIONS)
 
 # -----------------------------
-# Public Google Drive Folder Scraping
+# Drive: Get files from folder
 # -----------------------------
-def get_file_ids_from_public_folder(folder_url):
-    print(f"Fetching files from folder {folder_url}...")
-    r = requests.get(folder_url)
-    if r.status_code != 200:
-        print("Failed to access folder URL.")
-        return []
-    
-    soup = BeautifulSoup(r.text, "html.parser")
-    file_ids = set()
-    for a in soup.find_all("a", href=True):
-        href = a['href']
-        if "/file/d/" in href:
-            fid = href.split("/file/d/")[1].split("/")[0]
-            file_ids.add(fid)
-        elif "id=" in href:
-            fid = href.split("id=")[1].split("&")[0]
-            file_ids.add(fid)
-    print(f"Found {len(file_ids)} files in the folder.")
-    return list(file_ids)
+def get_files_in_folder(drive_service, folder_id):
+    print(f"Fetching files from folder {folder_id}...")
+    query = f"'{folder_id}' in parents and trashed=false"
+    results = drive_service.files().list(q=query, fields="files(id, name, mimeType)").execute()
+    files = results.get("files", [])
+    print(f"Found {len(files)} files in the folder.")
+    return files
 
 # -----------------------------
-# Download & Process
+# Download from Drive
 # -----------------------------
-def download_from_gdrive(file_id, filename):
-    url = f"https://drive.google.com/uc?export=download&id={file_id}"
-    r = requests.get(url, stream=True)
-    if r.status_code == 200:
-        with open(filename, "wb") as f:
-            for chunk in r.iter_content(1024):
-                f.write(chunk)
-        print(f"Downloaded {filename}")
-        return True
-    print(f"Failed to download {file_id}")
-    return False
+def download_file(drive_service, file_id, filename):
+    from googleapiclient.http import MediaIoBaseDownload
+    import io
+    print(f"Downloading file {file_id}...")
+    request = drive_service.files().get_media(fileId=file_id)
+    fh = io.FileIO(filename, "wb")
+    downloader = MediaIoBaseDownload(fh, request)
+    done = False
+    while not done:
+        status, done = downloader.next_chunk()
+    print(f"Downloaded {filename}.")
+    return True
 
+# -----------------------------
+# Video Processing
+# -----------------------------
 def process_video(input_file, output_file):
+    print(f"Processing video {input_file}...")
     cmd = [
         "ffmpeg", "-i", input_file,
         "-vf", "scale=1080:1920:force_original_aspect_ratio=decrease,pad=1080:1920:(ow-iw)/2:(oh-ih)/2",
@@ -100,55 +110,56 @@ def process_video(input_file, output_file):
         output_file, "-y"
     ]
     subprocess.run(cmd, check=True)
-    print(f"Processed {output_file}")
+    print(f"Processed video saved as {output_file}.")
 
 # -----------------------------
-# Upload to YouTube
+# YouTube Upload
 # -----------------------------
 def upload_to_youtube(youtube, video_file, title, description):
+    print(f"Uploading {video_file} to YouTube...")
     body = {
         "snippet": {
             "title": title,
             "description": description,
             "tags": ["motivation", "inspiration", "shorts", "success", "discipline"],
-            "categoryId": "22"
+            "categoryId": "22"  # People & Blogs
         },
         "status": {"privacyStatus": "public"}
     }
     media = MediaFileUpload(video_file, chunksize=-1, resumable=True)
     request = youtube.videos().insert(part="snippet,status", body=body, media_body=media)
     response = request.execute()
-    print(f"Uploaded: {video_file}")
+    print(f"Upload completed: {response.get('id')}")
     return response
 
 # -----------------------------
-# Main Logic
+# Main
 # -----------------------------
 def main():
     youtube = authenticate_youtube()
+    drive_service = authenticate_drive()
     posted = load_posted()
+    folder_id = os.getenv("DRIVE_FOLDER_ID").strip()
 
-    folder_url = "https://drive.google.com/drive/folders/1svFyekf17TKmZ28gtwZqiT5M9I3HbD01"
-    file_ids = get_file_ids_from_public_folder(folder_url)
+    files = get_files_in_folder(drive_service, folder_id)
+    for file in files:
+        file_id = file["id"]
+        file_name = file["name"]
 
-    for file_id in file_ids:
         if file_id in posted:
             continue
 
-        filename = f"{file_id}.mp4"
-        if not download_from_gdrive(file_id, filename):
+        if not file_name.lower().endswith(".mp4"):
+            print(f"Skipping {file_name}, not an mp4 video.")
             continue
 
-        if not filename.endswith(".mp4"):
-            print(f"Skipping {filename}, not a video.")
-            continue
+        download_file(drive_service, file_id, file_name)
+        processed_file = f"processed_{file_name}"
+        process_video(file_name, processed_file)
 
-        processed_file = f"processed_{filename}"
-        process_video(filename, processed_file)
-
-        # Caption
+        # Caption generation
         try:
-            caption = generate_caption(filename)
+            caption = generate_caption(file_name)
             if not caption or caption.strip() == "":
                 raise Exception("Empty caption")
         except Exception as e:
@@ -157,15 +168,16 @@ def main():
 
         title = caption[:100]
         description = caption
-
         upload_to_youtube(youtube, processed_file, title, description)
 
         posted.add(file_id)
         save_posted(posted)
 
-        os.remove(filename)
+        # Cleanup
+        os.remove(file_name)
         os.remove(processed_file)
-        break  # post only one per run
+
+        break  # Post only one per run
 
 if __name__ == "__main__":
     main()
