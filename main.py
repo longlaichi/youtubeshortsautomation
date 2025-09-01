@@ -1,166 +1,163 @@
 import os
-import json
-import random
-import subprocess
-import pickle
 import base64
-from pydrive2.auth import GoogleAuth
-from pydrive2.drive import GoogleDrive
+import json
+import tempfile
+import re
+import yt_dlp
+from google.oauth2 import service_account
 from googleapiclient.discovery import build
 from googleapiclient.http import MediaFileUpload
-from google.oauth2.credentials import Credentials
+from pydub import AudioSegment
+import speech_recognition as sr
+
+from caption_generator import generate_captions
+
 
 # -----------------------------
-# CONFIG
+# Authenticate Google Drive
 # -----------------------------
-SCOPES_DRIVE = ["https://www.googleapis.com/auth/drive.readonly"]
-SCOPES_YT = ["https://www.googleapis.com/auth/youtube.upload"]
+def authenticate_google_drive():
+    sa_json = os.environ["GOOGLE_SERVICE_ACCOUNT"]
+    creds_dict = json.loads(sa_json)
+    creds = service_account.Credentials.from_service_account_info(
+        creds_dict,
+        scopes=["https://www.googleapis.com/auth/drive.readonly"]
+    )
+    return build("drive", "v3", credentials=creds)
 
-POSTED_FILE = "posted.json"
-
-FALLBACK_CAPTIONS = [
-    "Keep grinding 💪 Success is coming! #Motivation #Success #Grind",
-    "Your only limit is you 🚀 #Inspiration #DailyMotivation #DreamBig",
-    "Don’t stop until you’re proud 🔥 #NeverGiveUp #StayStrong",
-    "Every day is a new chance to grow 🌱 #Mindset #Positivity",
-    "Small steps lead to big results 🏆 #Focus #Discipline",
-] * 20
 
 # -----------------------------
-# Posted video helper
-# -----------------------------
-def load_posted():
-    if os.path.exists(POSTED_FILE):
-        try:
-            with open(POSTED_FILE, "r") as f:
-                return json.load(f)
-        except Exception as e:
-            print(f"❌ Failed to load {POSTED_FILE}: {e}")
-    return []
-
-def save_posted(posted):
-    try:
-        with open(POSTED_FILE, "w") as f:
-            json.dump(posted, f, indent=2)
-        print(f"✅ Updated {POSTED_FILE} with {len(posted)} videos")
-    except Exception as e:
-        print(f"❌ Failed to save {POSTED_FILE}: {e}")
-
-def get_random_caption():
-    return random.choice(FALLBACK_CAPTIONS)
-
-# -----------------------------
-# Google Drive
-# -----------------------------
-def authenticate_drive():
-    from oauth2client.service_account import ServiceAccountCredentials
-    service_account_json = os.environ.get("GOOGLE_SERVICE_ACCOUNT")
-    if not service_account_json:
-        raise ValueError("GOOGLE_SERVICE_ACCOUNT environment variable not set!")
-
-    creds_dict = json.loads(service_account_json)
-    credentials = ServiceAccountCredentials.from_json_keyfile_dict(creds_dict, SCOPES_DRIVE)
-
-    gauth = GoogleAuth()
-    gauth.credentials = credentials
-    return GoogleDrive(gauth)
-
-def get_next_file(drive, folder_ids, posted_ids):
-    for folder_id in folder_ids:
-        file_list = drive.ListFile({'q': f"'{folder_id}' in parents and trashed=false"}).GetList()
-        for file in file_list:
-            if file['id'] not in posted_ids and file['title'].lower().endswith(".mp4"):
-                return file['id'], file['title']
-    return None, None
-
-def download_file(drive, file_id, filename):
-    file = drive.CreateFile({'id': file_id})
-    file.GetContentFile(filename)
-    print(f"✅ Downloaded {filename}")
-
-# -----------------------------
-# FFmpeg Processing
-# -----------------------------
-def ffmpeg_process(input_path, output_path):
-    cmd = [
-        "ffmpeg", "-y", "-i", input_path,
-        "-vf",
-        "scale=1080:1920:force_original_aspect_ratio=decrease,"
-        "pad=1080:1920:(ow-iw)/2:(oh-ih)/2",
-        "-c:v", "libx264", "-preset", "slow", "-crf", "18",
-        "-c:a", "aac", "-b:a", "128k",
-        output_path
-    ]
-    subprocess.run(cmd, check=True)
-    print(f"✅ Processed video saved as {output_path}")
-
-# -----------------------------
-# YouTube Upload using token from GitHub secret
+# Authenticate YouTube
 # -----------------------------
 def authenticate_youtube():
-    b64_token = os.environ.get("YOUTUBE_TOKEN_B64")
-    if not b64_token:
-        raise ValueError("YOUTUBE_TOKEN_B64 secret not set!")
-    token_bytes = base64.b64decode(b64_token)
-    creds = pickle.loads(token_bytes)
+    token_b64 = os.environ["YOUTUBE_TOKEN_B64"]
+    token_json = base64.b64decode(token_b64).decode("utf-8")
+    creds_dict = json.loads(token_json)
+
+    creds = service_account.Credentials.from_service_account_info(
+        creds_dict,
+        scopes=["https://www.googleapis.com/auth/youtube.upload"]
+    )
     return build("youtube", "v3", credentials=creds)
 
-def upload_to_youtube(youtube, video_file, title, description):
+
+# -----------------------------
+# Download next unposted video
+# -----------------------------
+def get_next_drive_file(drive_service, folder_id, posted_log="posted_videos.txt"):
+    # Get list of already posted videos
+    posted = set()
+    if os.path.exists(posted_log):
+        with open(posted_log, "r") as f:
+            posted = set(line.strip() for line in f.readlines())
+
+    # List files in Drive
+    results = drive_service.files().list(
+        q=f"'{folder_id}' in parents and mimeType contains 'video/'",
+        orderBy="name",
+        fields="files(id, name)"
+    ).execute()
+    files = results.get("files", [])
+
+    for file in sorted(files, key=lambda x: x["name"]):
+        if file["id"] not in posted:
+            return file
+
+    return None
+
+
+def download_file(drive_service, file_id, filename):
+    request = drive_service.files().get_media(fileId=file_id)
+    fh = open(filename, "wb")
+    downloader = MediaFileUpload(fh, mimetype="video/mp4", resumable=True)
+    request.execute()
+
+
+# -----------------------------
+# Extract first 3 sec audio → text
+# -----------------------------
+def extract_first_3s_text(video_path):
+    audio = AudioSegment.from_file(video_path)
+    first_3s = audio[:3000]  # 3 seconds
+
+    temp_audio = tempfile.NamedTemporaryFile(delete=False, suffix=".wav")
+    first_3s.export(temp_audio.name, format="wav")
+
+    recognizer = sr.Recognizer()
+    with sr.AudioFile(temp_audio.name) as source:
+        audio_data = recognizer.record(source)
+        try:
+            text = recognizer.recognize_google(audio_data)
+        except sr.UnknownValueError:
+            text = ""
+        except sr.RequestError:
+            text = ""
+
+    return text
+
+
+# -----------------------------
+# Upload video to YouTube
+# -----------------------------
+def upload_to_youtube(youtube_service, video_path, meta):
     body = {
         "snippet": {
-            "title": title[:100],
-            "description": description,
-            "tags": ["motivation", "inspiration", "shorts", "success", "discipline"],
+            "title": meta["title"],
+            "description": f"{meta['caption']}\n\n{meta['hashtags']}\n\nPro Tip: {meta['pro_tip']}",
             "categoryId": "22"
         },
         "status": {"privacyStatus": "public"}
     }
-    media = MediaFileUpload(video_file, chunksize=-1, resumable=True)
-    request = youtube.videos().insert(part="snippet,status", body=body, media_body=media)
+
+    media = MediaFileUpload(video_path, chunksize=-1, resumable=True)
+    request = youtube_service.videos().insert(
+        part="snippet,status",
+        body=body,
+        media_body=media
+    )
     response = request.execute()
-    return response.get("id")
+    return response
+
 
 # -----------------------------
-# Main
+# MAIN
 # -----------------------------
 def main():
-    print("🔑 Authenticating Google Drive and YouTube...")
-    drive = authenticate_drive()
-    youtube = authenticate_youtube()
+    drive_service = authenticate_google_drive()
+    youtube_service = authenticate_youtube()
 
-    posted_ids = load_posted()
+    folder_id = os.environ["DRIVE_FOLDER_ID"]
+    file = get_next_drive_file(drive_service, folder_id)
 
-    folder_ids_str = os.getenv("DRIVE_FOLDER_ID")
-    if not folder_ids_str:
-        raise ValueError("DRIVE_FOLDER_ID environment variable not set!")
-    folder_ids = [fid.strip() for fid in folder_ids_str.split(",") if fid.strip()]
-
-    print(f"📂 Searching in folders: {folder_ids}")
-    file_id, file_title = get_next_file(drive, folder_ids, posted_ids)
-    if not file_id:
-        print("🎉 All videos already posted!")
+    if not file:
+        print("No new files found.")
         return
 
-    local_file = file_title
-    download_file(drive, file_id, local_file)
-    processed_file = f"processed_{local_file}"
+    video_name = file["name"]
+    video_path = f"/tmp/{video_name}"
 
-    print("🎥 Processing video...")
-    ffmpeg_process(local_file, processed_file)
+    # Download video
+    request = drive_service.files().get_media(fileId=file["id"])
+    with open(video_path, "wb") as f:
+        f.write(request.execute())
 
-    print("✍️ Generating caption...")
-    caption = get_random_caption()
+    # Extract text from first 3s
+    first_3s_text = extract_first_3s_text(video_path)
 
-    print(f"📤 Uploading to YouTube: {file_title}")
-    video_id = upload_to_youtube(youtube, processed_file, caption, caption)
-    print(f"✅ Uploaded video ID: {video_id}")
+    # Generate captions
+    meta = generate_captions(first_3s_text)
 
-    posted_ids.append(file_id)
-    save_posted(posted_ids)
+    # Upload to YouTube
+    upload_to_youtube(youtube_service, video_path, meta)
 
-    os.remove(local_file)
-    os.remove(processed_file)
-    print("🧹 Cleanup done. Process finished successfully!")
+    # Mark as posted
+    with open("posted_videos.txt", "a") as f:
+        f.write(file["id"] + "\n")
+
+    # Cleanup
+    os.remove(video_path)
+    print(f"Uploaded {video_name} successfully!")
+
 
 if __name__ == "__main__":
     main()
