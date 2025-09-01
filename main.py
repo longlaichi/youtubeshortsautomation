@@ -126,7 +126,7 @@ def main():
     drive_service = authenticate_google_drive()
     youtube_service = authenticate_youtube()
 
-    folder_id = os.environ["DRIVE_FOLDER_ID"]
+    folder_id = os.environ["DRIVE_FOLDER_IDS"]
     file = get_next_drive_file(drive_service, folder_id)
 
     if not file:
