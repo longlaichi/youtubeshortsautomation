@@ -4,7 +4,6 @@ import json
 import pickle
 import tempfile
 import io
-import re
 from pydub import AudioSegment
 import speech_recognition as sr
 from google.oauth2 import service_account
@@ -114,7 +113,7 @@ def main():
     drive_service = authenticate_google_drive()
     youtube_service = authenticate_youtube()
 
-    folder_id = os.environ["DRIVE_FOLDER_IDS"]
+    folder_id = os.environ["DRIVE_FOLDER_ID"]
     file = get_next_drive_file(drive_service, folder_id)
 
     if not file:
