@@ -1,17 +1,16 @@
 import os
 import base64
 import json
+import pickle
 import tempfile
+import io
 import re
-import yt_dlp
-from google.oauth2 import service_account
-from googleapiclient.discovery import build
-from googleapiclient.http import MediaFileUpload
 from pydub import AudioSegment
 import speech_recognition as sr
-
+from google.oauth2 import service_account
+from googleapiclient.discovery import build
+from googleapiclient.http import MediaFileUpload, MediaIoBaseDownload
 from caption_generator import generate_captions
-
 
 # -----------------------------
 # Authenticate Google Drive
@@ -25,33 +24,24 @@ def authenticate_google_drive():
     )
     return build("drive", "v3", credentials=creds)
 
-
 # -----------------------------
 # Authenticate YouTube
 # -----------------------------
 def authenticate_youtube():
     token_b64 = os.environ["YOUTUBE_TOKEN_B64"]
-    token_json = base64.b64decode(token_b64).decode("utf-8")
-    creds_dict = json.loads(token_json)
-
-    creds = service_account.Credentials.from_service_account_info(
-        creds_dict,
-        scopes=["https://www.googleapis.com/auth/youtube.upload"]
-    )
+    token_bytes = base64.b64decode(token_b64)
+    creds = pickle.loads(token_bytes)
     return build("youtube", "v3", credentials=creds)
 
-
 # -----------------------------
-# Download next unposted video
+# Get next unposted video
 # -----------------------------
 def get_next_drive_file(drive_service, folder_id, posted_log="posted_videos.txt"):
-    # Get list of already posted videos
     posted = set()
     if os.path.exists(posted_log):
         with open(posted_log, "r") as f:
             posted = set(line.strip() for line in f.readlines())
 
-    # List files in Drive
     results = drive_service.files().list(
         q=f"'{folder_id}' in parents and mimeType contains 'video/'",
         orderBy="name",
@@ -62,24 +52,26 @@ def get_next_drive_file(drive_service, folder_id, posted_log="posted_videos.txt"
     for file in sorted(files, key=lambda x: x["name"]):
         if file["id"] not in posted:
             return file
-
     return None
 
-
+# -----------------------------
+# Download file from Drive
+# -----------------------------
 def download_file(drive_service, file_id, filename):
     request = drive_service.files().get_media(fileId=file_id)
-    fh = open(filename, "wb")
-    downloader = MediaFileUpload(fh, mimetype="video/mp4", resumable=True)
-    request.execute()
-
+    fh = io.FileIO(filename, 'wb')
+    downloader = MediaIoBaseDownload(fh, request)
+    done = False
+    while not done:
+        status, done = downloader.next_chunk()
+    fh.close()
 
 # -----------------------------
-# Extract first 3 sec audio → text
+# Extract first 3 seconds audio → text
 # -----------------------------
 def extract_first_3s_text(video_path):
     audio = AudioSegment.from_file(video_path)
-    first_3s = audio[:3000]  # 3 seconds
-
+    first_3s = audio[:3000]  # first 3 seconds
     temp_audio = tempfile.NamedTemporaryFile(delete=False, suffix=".wav")
     first_3s.export(temp_audio.name, format="wav")
 
@@ -92,9 +84,7 @@ def extract_first_3s_text(video_path):
             text = ""
         except sr.RequestError:
             text = ""
-
     return text
-
 
 # -----------------------------
 # Upload video to YouTube
@@ -108,7 +98,6 @@ def upload_to_youtube(youtube_service, video_path, meta):
         },
         "status": {"privacyStatus": "public"}
     }
-
     media = MediaFileUpload(video_path, chunksize=-1, resumable=True)
     request = youtube_service.videos().insert(
         part="snippet,status",
@@ -117,7 +106,6 @@ def upload_to_youtube(youtube_service, video_path, meta):
     )
     response = request.execute()
     return response
-
 
 # -----------------------------
 # MAIN
@@ -130,21 +118,19 @@ def main():
     file = get_next_drive_file(drive_service, folder_id)
 
     if not file:
-        print("No new files found.")
+        print("No new videos found.")
         return
 
     video_name = file["name"]
     video_path = f"/tmp/{video_name}"
 
     # Download video
-    request = drive_service.files().get_media(fileId=file["id"])
-    with open(video_path, "wb") as f:
-        f.write(request.execute())
+    download_file(drive_service, file["id"], video_path)
 
-    # Extract text from first 3s
+    # Extract text from first 3 seconds
     first_3s_text = extract_first_3s_text(video_path)
 
-    # Generate captions
+    # Generate captions from first 3 seconds only
     meta = generate_captions(first_3s_text)
 
     # Upload to YouTube
@@ -156,8 +142,7 @@ def main():
 
     # Cleanup
     os.remove(video_path)
-    print(f"Uploaded {video_name} successfully!")
-
+    print(f"✅ Uploaded {video_name} successfully!")
 
 if __name__ == "__main__":
     main()
