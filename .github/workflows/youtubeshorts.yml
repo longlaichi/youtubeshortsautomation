@@ -35,11 +35,13 @@ jobs:
       - name: Install yt-dlp
         run: pip install yt-dlp
 
+      # 🔑 Restore long-lived Google OAuth token.json (base64 stored in Secrets)
+      - name: Restore Google token
+        run: echo "${{ secrets.GDRIVE_TOKEN_B64 }}" | base64 -d > token.json
+
       - name: Run YouTube Shorts bot
         env:
-          GOOGLE_SERVICE_ACCOUNT: ${{ secrets.GOOGLE_SERVICE_ACCOUNT }}
           DRIVE_FOLDER_ID: ${{ secrets.DRIVE_FOLDER_IDS }}  # comma-separated IDs
-          YOUTUBE_TOKEN_B64: ${{ secrets.YOUTUBE_TOKEN_B64 }} # base64 encoded youtube_token.pkl
         run: python main.py
 
       - name: Commit posted.json if changed
