@@ -2,11 +2,11 @@ import os
 import subprocess
 import json
 import base64
-import pickle
 from pydrive2.auth import GoogleAuth
 from pydrive2.drive import GoogleDrive
 from googleapiclient.discovery import build
 from googleapiclient.http import MediaFileUpload
+from google.oauth2.credentials import Credentials
 
 from caption_generator import get_unique_caption
 from record_keeper import load_posted, save_posted
@@ -30,7 +30,11 @@ def authenticate_drive():
 
 def get_next_file(drive, folder_ids, posted_ids):
     for folder_id in folder_ids:
-        file_list = drive.ListFile({'q': f"'{folder_id}' in parents and trashed=false"}).GetList()
+        try:
+            file_list = drive.ListFile({'q': f"'{folder_id}' in parents and trashed=false"}).GetList()
+        except Exception as e:
+            print(f"❌ Failed to list files in folder {folder_id}: {e}")
+            continue
         for file in file_list:
             if file['id'] not in posted_ids and file['title'].lower().endswith(".mp4"):
                 return file['id'], file['title']
@@ -39,6 +43,7 @@ def get_next_file(drive, folder_ids, posted_ids):
 def download_file(drive, file_id, filename):
     file = drive.CreateFile({'id': file_id})
     file.GetContentFile(filename)
+    print(f"✅ Downloaded {filename}")
 
 # -----------------------------
 # FFmpeg Processing
@@ -54,6 +59,7 @@ def ffmpeg_process(input_path, output_path):
         output_path
     ]
     subprocess.run(cmd, check=True)
+    print(f"🎬 Processed video saved to {output_path}")
 
 # -----------------------------
 # YouTube (personal account via OAuth token)
@@ -62,8 +68,11 @@ def authenticate_youtube():
     b64_token = os.environ.get("YOUTUBE_TOKEN_B64")
     if not b64_token:
         raise ValueError("YOUTUBE_TOKEN_B64 secret not set!")
-    token_bytes = base64.b64decode(b64_token)
-    creds = pickle.loads(token_bytes)
+    token_json = base64.b64decode(b64_token).decode("utf-8")
+    creds_dict = json.loads(token_json)
+    creds = Credentials.from_authorized_user_info(
+        creds_dict, ["https://www.googleapis.com/auth/youtube.upload"]
+    )
     return build("youtube", "v3", credentials=creds)
 
 def upload_to_youtube(youtube, video_file, title, description):
@@ -89,8 +98,10 @@ def main():
     drive = authenticate_drive()
     youtube = authenticate_youtube()
 
+    # Load posted video IDs
     posted_ids = load_posted()
 
+    # Get folders
     folder_ids_str = os.getenv("DRIVE_FOLDER_IDS")
     if not folder_ids_str:
         raise ValueError("DRIVE_FOLDER_IDS environment variable not set!")
@@ -114,12 +125,17 @@ def main():
     description = f"{caption_text}\n\n{hashtags}"
 
     print(f"📤 Uploading to YouTube: {file_title}")
-    video_id = upload_to_youtube(youtube, processed_file, caption_text, description)
-    print(f"✅ Uploaded video ID: {video_id}")
+    try:
+        video_id = upload_to_youtube(youtube, processed_file, caption_text, description)
+        print(f"✅ Uploaded video ID: {video_id}")
+    except Exception as e:
+        print(f"❌ Upload failed: {e}")
+        return
 
     posted_ids.append(file_id)
     save_posted(posted_ids)
 
+    # Cleanup
     os.remove(local_file)
     os.remove(processed_file)
     print("🧹 Cleanup done. Process finished successfully!")
