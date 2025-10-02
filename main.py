@@ -1,56 +1,29 @@
 import os
-import json
 import subprocess
-import pickle
+import json
 import base64
+import pickle
 from pydrive2.auth import GoogleAuth
 from pydrive2.drive import GoogleDrive
 from googleapiclient.discovery import build
 from googleapiclient.http import MediaFileUpload
 
-# Import caption generator
-from caption_generator import get_unique_caption  # <-- use your caption_generator.py
+from caption_generator import get_unique_caption
+from record_keeper import load_posted, save_posted
 
 # -----------------------------
 # CONFIG
 # -----------------------------
-SCOPES_DRIVE = ["https://www.googleapis.com/auth/drive.readonly"]
-SCOPES_YT = ["https://www.googleapis.com/auth/youtube.upload"]
-
 POSTED_FILE = "posted.json"
 
 # -----------------------------
-# Posted video helper
-# -----------------------------
-def load_posted():
-    if os.path.exists(POSTED_FILE):
-        try:
-            with open(POSTED_FILE, "r") as f:
-                return json.load(f)
-        except Exception as e:
-            print(f"❌ Failed to load {POSTED_FILE}: {e}")
-    return []
-
-def save_posted(posted):
-    try:
-        with open(POSTED_FILE, "w") as f:
-            json.dump(posted, f, indent=2)
-        print(f"✅ Updated {POSTED_FILE} with {len(posted)} videos")
-    except Exception as e:
-        print(f"❌ Failed to save {POSTED_FILE}: {e}")
-
-# -----------------------------
-# Google Drive
+# Google Drive (service account)
 # -----------------------------
 def authenticate_drive():
     from oauth2client.service_account import ServiceAccountCredentials
-    service_account_json = os.environ.get("GOOGLE_SERVICE_ACCOUNT")
-    if not service_account_json:
-        raise ValueError("GOOGLE_SERVICE_ACCOUNT environment variable not set!")
-
-    creds_dict = json.loads(service_account_json)
-    credentials = ServiceAccountCredentials.from_json_keyfile_dict(creds_dict, SCOPES_DRIVE)
-
+    creds_dict = json.loads(os.environ["GOOGLE_SERVICE_ACCOUNT"])
+    scopes = ["https://www.googleapis.com/auth/drive.readonly"]
+    credentials = ServiceAccountCredentials.from_json_keyfile_dict(creds_dict, scopes)
     gauth = GoogleAuth()
     gauth.credentials = credentials
     return GoogleDrive(gauth)
@@ -66,7 +39,6 @@ def get_next_file(drive, folder_ids, posted_ids):
 def download_file(drive, file_id, filename):
     file = drive.CreateFile({'id': file_id})
     file.GetContentFile(filename)
-    print(f"✅ Downloaded {filename}")
 
 # -----------------------------
 # FFmpeg Processing
@@ -82,10 +54,9 @@ def ffmpeg_process(input_path, output_path):
         output_path
     ]
     subprocess.run(cmd, check=True)
-    print(f"✅ Processed video saved as {output_path}")
 
 # -----------------------------
-# YouTube Upload using token from GitHub secret
+# YouTube (personal account via OAuth token)
 # -----------------------------
 def authenticate_youtube():
     b64_token = os.environ.get("YOUTUBE_TOKEN_B64")
@@ -120,9 +91,9 @@ def main():
 
     posted_ids = load_posted()
 
-    folder_ids_str = os.getenv("DRIVE_FOLDER_ID")
+    folder_ids_str = os.getenv("DRIVE_FOLDER_IDS")
     if not folder_ids_str:
-        raise ValueError("DRIVE_FOLDER_ID environment variable not set!")
+        raise ValueError("DRIVE_FOLDER_IDS environment variable not set!")
     folder_ids = [fid.strip() for fid in folder_ids_str.split(",") if fid.strip()]
 
     print(f"📂 Searching in folders: {folder_ids}")
